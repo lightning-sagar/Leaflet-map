@@ -15,7 +15,7 @@ app.post('/getLocation', async (req, res) => { // Use POST here
     console.log('City name:', cityName);
 
     try {
-        const genAI = new GoogleGenerativeAI("AIzaSyAWIK_-zVEF6UI_d10_H5oiPz5x9S4Kr2M");
+        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const prompt = `Provide the city name for the city "${cityName}" in JSON format. 
                         If the input contains two city names, return the result in JSON format with two fields:
