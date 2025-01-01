@@ -19,7 +19,7 @@ app.post('/getLocation', async (req, res) => {
     console.log('City prompt:', transcriptcityName);
  
     try {
-        const genAI = new GoogleGenerativeAI("AIzaSyAWIK_-zVEF6UI_d10_H5oiPz5x9S4Kr2M");
+        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const prompt = `Analyze the user's input and determine the intent ${transcriptcityName}. Based on the intent, create a JSON object in the following format:
 
