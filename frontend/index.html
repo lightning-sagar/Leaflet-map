@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaflet Map with Voice-to-Text</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <style>
+        #map {
+            height: 100vh;
+        }
+        #search-container {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        #city-input {
+            width: 200px;
+            padding: 5px;
+        }
+        #search-btn {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        #voice-btn {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="search-container">
+        <input id="city-input" type="text" placeholder="Enter city name" />
+        <button id="search-btn">Locate</button>
+        <button id="voice-btn">🎤 Speak</button>
+        <button id="current-location-btn">📍 Current Location</button>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script>
+        const map = L.map('map').setView([20.5937, 78.9629], 5);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let userLocation;
+        let routeControl; 
+        let userLocationMarker;
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    userLocation = { lat: latitude, lon: longitude };
+                    map.setView([latitude, longitude], 12);
+                    if(!userLocationMarker){
+                        const circle = L.circle([latitude, longitude], {
+                            color: 'red',
+                            fillColor: '#30f',
+                            fillOpacity: 0.5,
+                            radius: 300,  
+                        }).addTo(map);
+                        circle.bindPopup('You are here!').openPopup();
+                        map.on('zoom', () => {
+                            const zoomLevel = map.getZoom(); 
+                            const newRadius = 300 * (18 - zoomLevel); 
+                            circle.setRadius(newRadius);
+                            if (zoomLevel <= 12) {
+                                L.marker([latitude, longitude])
+                                    .addTo(map)
+                                    .bindPopup('You are here!').openPopup();
+                            }  
+                        });
+                    }
+                    else {
+                        userLocationMarker.setLatLng([latitude, longitude]);
+                        userLocationMarker.setPopupContent('You are here!');
+                    }
+                },
+                (error) => {
+                    console.error('Geolocation error:', error.message);
+                }
+            );
+        } else {
+            alert('Geolocation is not supported by your browser.');
+        }
+
+        const searchBtn = document.getElementById('search-btn');
+        const cityInput = document.getElementById('city-input');
+        const voiceBtn = document.getElementById('voice-btn');
+        const currentLocationBtn = document.getElementById('current-location-btn');
+
+        currentLocationBtn.addEventListener('click', () => {
+            if (userLocation) {
+                map.setView([userLocation.lat, userLocation.lon], 12);  
+                L.circle([userLocation.lat, userLocation.lon], {
+                    color: 'red',
+                    fillColor: '#30f',
+                    fillOpacity: 0.5,
+                    radius: 300,
+                }).addTo(map).bindPopup('You are here!').openPopup();
+            } else {
+                alert('User location not available! Ensure location permissions are enabled.');
+            }
+        });
+
+
+        searchBtn.addEventListener('click', () => {
+            const cityName = cityInput.value;
+            if (cityName) {
+                searchforCity(cityName, userLocation);
+            } else {
+                alert('Please enter a city name!');
+            }
+        });
+
+        const searchforCity = async (cityName, userLocation) => {
+                const {lat,lon} = userLocation; 
+                console.log(cityName,userLocation)
+                try {
+                    const query = `
+                [out:json];
+                (
+                    node["amenity"="${type}"](around:2000, ${lat}, ${lon});
+                    way["amenity"="${type}"](around:2000, ${lat}, ${lon});
+                    relation["amenity"="${type}"](around:2000, ${lat}, ${lon});
+                );
+                out body;
+            `;
+            const response = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
+            const data = await response.json();
+            console.log(data)
+                if (data.length > 0) {
+                    const { lat, lon } = data[0];
+                    map.setView([lat, lon], 12);
+                    L.marker([lat, lon]).addTo(map).bindPopup(`You searched for: ${cityName}`).openPopup();
+
+                    if (userLocation) {
+                        if (routeControl) {
+                            map.removeControl(routeControl); // Remove previous route
+                        }
+                        routeControl = L.Routing.control({
+                            waypoints: [
+                                L.latLng(userLocation.lat, userLocation.lon),
+                                L.latLng(lat, lon)
+                            ],
+                            routeWhileDragging: true
+                        }).addTo(map);
+                    } else {
+                        alert('User location not available!');
+                    }
+                } else {
+                    alert('City not found!');
+                }
+            } catch (error) {
+                console.error('Error fetching city data:', error);
+            }
+        };
+
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = 'en-US';
+
+        voiceBtn.addEventListener('click', () => {
+            recognition.start(); // Start listening for speech
+        });
+
+        recognition.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            cityInput.value = transcript; // Set the transcript (voice input) as the city name
+            console.log('Voice input:', transcript);
+            fetchLocationFromGemini(transcript);
+        };
+
+        recognition.onerror = function(event) {
+            console.error('Speech recognition error', event.error);
+        };
+        
+        async function zoomDir(dir, area = null) {
+            const panOffset = 100; // Amount to pan in pixels
+
+            if (area) {
+                try {
+                    // Fetch the location data for the specified area
+                    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${area}&format=json`);
+                    const data = await response.json();
+
+                    if (data.length > 0) {
+                        const { lat, lon } = data[0];
+                        map.setView([lat, lon], map.getZoom()); // Center map on the area
+                        L.marker([lat, lon]).addTo(map).bindPopup(`Focused on: ${area}`).openPopup();
+                    } else {
+                        alert(`Area "${area}" not found!`);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error fetching area data:', error);
+                    return;
+                }
+            }
+
+            // Adjust the map view based on the specified direction
+            switch (dir.toLowerCase()) {
+                case 'left':
+                    map.panBy([-panOffset, 0]); // Pan left
+                    break;
+                case 'right':
+                    map.panBy([panOffset, 0]); // Pan right
+                    break;
+                case 'in':
+                    map.zoomIn(); // Zoom in
+                    break;
+                case 'out':
+                    map.zoomOut(); // Zoom out
+                    break;
+                default:
+                    alert('Invalid direction! Use "left", "right", "in", or "out".');
+            }
+        }
+
+
+        const fetchNearbyLocations = async (locationType, userLocation) => {
+            console.log("Fetching nearby locations...",userLocation);
+            try {
+                const { lat, lon } = userLocation;
+
+                // Construct the search query for nearby locations
+                const url = `https://nominatim.openstreetmap.org/search?q=${locationType}&format=json&addressdetails=1&extratags=1&limit=5&lat=${lat}&lon=${lon}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                console.log(data, "Fetched data");
+
+                if (data.length > 0) {
+                    // Add markers to the map for each location
+                    data.forEach((location) => {
+                        const name = location.display_name.split(',')[0];
+                        const address = location.display_name;
+
+                        // Ensure lat and lon are numbers
+                        const latitude = parseFloat(location.lat);
+                        const longitude = parseFloat(location.lon);
+                        console.log(latitude,longitude)
+                        // Add a marker to the map
+                        if (map && !isNaN(latitude) && !isNaN(longitude)) {
+                            L.marker([latitude, longitude])
+                                .addTo(map)
+                                .bindPopup(`<strong>${name}</strong><br>${address}`)
+                                .openPopup();
+                        }
+                    });
+
+                    console.log(`Marked ${data.length} ${locationType}(s) on the map.`);
+                } else {
+                    console.log(`No nearby ${locationType} found.`);
+                }
+            } catch (error) {
+                console.error("Error fetching nearby locations:", error);
+            }
+        };
+
+
+
+        async function fetchLocationFromGemini(transcriptcityName) {
+            try {
+                const response = await fetch('http://localhost:3000/getLocation', {
+                    method: 'POST', 
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ transcriptcityName,userLocation }),  
+                });
+
+                const data = await response.json();
+                console.log('Gemini Response:', data);
+                
+                //is route
+                if(data?.route?.isroute){
+                    if(data?.route?.route?.from){
+                        const route = data.route.route
+                        const responseFrom = await fetch(`https://nominatim.openstreetmap.org/search?q=${route.from}&format=json`);
+                        const fromData = await responseFrom.json();
+                        const responseTo = await fetch(`https://nominatim.openstreetmap.org/search?q=${route.to}&format=json`);
+                        const toData = await responseTo.json();
+
+                        if (fromData.length > 0 && toData.length > 0) {
+                            const fromLocation = fromData[0];
+                            const toLocation = toData[0];
+
+                            const fromLatLng = L.latLng(fromLocation.lat, fromLocation.lon);
+                            const toLatLng = L.latLng(toLocation.lat, toLocation.lon);
+
+                            map.setView(fromLatLng, 12);
+
+                            // Add markers
+                            L.marker(fromLatLng).addTo(map).bindPopup(`From: ${route.from}`).openPopup();
+                            L.marker(toLatLng).addTo(map).bindPopup(`To: ${route.to}`).openPopup();
+
+                            if (routeControl) {
+                                map.removeControl(routeControl);  
+                            }
+                            routeControl = L.Routing.control({
+                                waypoints: [fromLatLng, toLatLng],
+                                routeWhileDragging: true
+                            }).addTo(map);
+                        } else {
+                            alert('City not found!');
+                        }
+                    }
+                    else{
+                        searchforCity(data.route.route.to,userLocation );
+                    }
+                }
+                else if(data?.area?.isarea){//for area 
+                    searchforCity(data.area.area.city,userLocation );
+                }
+                else if(data?.zoom?.iszoom){//zoom in or  out or left or right 
+                    zoomDir(data?.zoom?.zoom?.dir)
+                }
+                else if(data?.nearby?.isnearby){
+
+                    fetchNearbyLocations(data?.nearby?.nearby?.location_name, userLocation );
+                }
+            } catch (error) {
+                console.error('Error fetching location from Gemini:', error);
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+ 
